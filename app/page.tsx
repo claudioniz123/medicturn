@@ -1,6 +1,7 @@
 'use client'
 
-import { useMemo, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
+import { supabase } from '@/lib/supabase'
 import {
   AlertTriangle,
   ArrowDownUp,
@@ -56,7 +57,8 @@ export default function Page() {
   const [email, setEmail] = useState('admin@farmacia.com')
   const [password, setPassword] = useState('admin123')
   const [loginError, setLoginError] = useState('')
-  const [products, setProducts] = useState(seedProducts)
+  const [products, setProducts] = useState<Product[]>([])
+  const [dataStatus, setDataStatus] = useState<'loading' | 'saved' | 'error'>('loading')
   const [search, setSearch] = useState('')
   const [category, setCategory] = useState('Todas')
   const [status, setStatus] = useState('Todos')
@@ -65,6 +67,31 @@ export default function Page() {
   const [form, setForm] = useState(emptyProduct)
   const [formError, setFormError] = useState('')
   const [showPassword, setShowPassword] = useState(false)
+
+  useEffect(() => {
+    let cancelled = false
+    async function loadProducts() {
+      const { data, error } = await supabase.from('products').select('id,name,category,code,stock,minimum,active').order('id')
+      if (cancelled) return
+      if (error) {
+        setDataStatus('error')
+        return
+      }
+      if (!data.length) {
+        const { data: seeded, error: seedError } = await supabase.from('products').insert(seedProducts.map(({ id: _id, ...product }) => product)).select('id,name,category,code,stock,minimum,active')
+        if (seedError) {
+          setDataStatus('error')
+          return
+        }
+        setProducts(seeded as Product[])
+      } else {
+        setProducts(data as Product[])
+      }
+      setDataStatus('saved')
+    }
+    loadProducts()
+    return () => { cancelled = true }
+  }, [])
 
   const categories = ['Todas', ...Array.from(new Set(products.map((product) => product.category)))]
   const lowStock = products.filter((product) => product.active && product.stock <= product.minimum).length
@@ -98,19 +125,36 @@ export default function Page() {
     setModal('edit')
   }
 
-  function saveProduct(event: React.FormEvent) {
+  async function saveProduct(event: React.FormEvent) {
     event.preventDefault()
     if (!form.name.trim() || !form.code.trim()) return setFormError('Completá el nombre y el código del producto.')
     if (form.stock < 0 || form.minimum < 0) return setFormError('El stock no puede tener valores negativos.')
     const duplicate = products.some((product) => product.code.toLowerCase() === form.code.trim().toLowerCase() && product.id !== editing?.id)
     if (duplicate) return setFormError('El código de producto ya existe.')
-    if (editing) setProducts((current) => current.map((product) => product.id === editing.id ? { ...product, ...form, name: form.name.trim(), code: form.code.trim() } : product))
-    else setProducts((current) => [...current, { ...form, id: Math.max(...current.map((product) => product.id), 0) + 1, name: form.name.trim(), code: form.code.trim() }])
+    const payload = { ...form, name: form.name.trim(), code: form.code.trim() }
+    const result = editing
+      ? await supabase.from('products').update(payload).eq('id', editing.id).select('id,name,category,code,stock,minimum,active').single()
+      : await supabase.from('products').insert(payload).select('id,name,category,code,stock,minimum,active').single()
+    if (result.error || !result.data) {
+      setFormError('No se pudo guardar el producto. Intentá nuevamente.')
+      setDataStatus('error')
+      return
+    }
+    setProducts((current) => editing ? current.map((product) => product.id === editing.id ? result.data as Product : product) : [...current, result.data as Product])
+    setDataStatus('saved')
     setModal(null)
   }
 
-  function toggleProduct(id: number) {
-    setProducts((current) => current.map((product) => product.id === id ? { ...product, active: !product.active } : product))
+  async function toggleProduct(id: number) {
+    const product = products.find((item) => item.id === id)
+    if (!product) return
+    const { data, error } = await supabase.from('products').update({ active: !product.active }).eq('id', id).select('id,name,category,code,stock,minimum,active').single()
+    if (error || !data) {
+      setDataStatus('error')
+      return
+    }
+    setProducts((current) => current.map((item) => item.id === id ? data as Product : item))
+    setDataStatus('saved')
   }
 
   if (!session) return <LoginScreen email={email} password={password} loginError={loginError} showPassword={showPassword} onEmail={setEmail} onPassword={setPassword} onTogglePassword={() => setShowPassword(!showPassword)} onSubmit={login} />
@@ -120,7 +164,7 @@ export default function Page() {
       <header className="border-b border-slate-200 bg-white">
         <div className="mx-auto flex max-w-[1440px] items-center justify-between gap-4 px-5 py-4 lg:px-10">
           <div className="flex items-center gap-3"><div className="flex size-11 items-center justify-center rounded-xl bg-[#0d5c63] text-white shadow-sm"><Stethoscope /></div><div><p className="text-lg font-bold tracking-tight text-[#123b4a]">Medic<span className="text-[#0d8b83]">Turn</span></p><p className="text-xs text-slate-500">Sistema de gestión de medicamentos</p></div></div>
-          <div className="hidden items-center gap-3 sm:flex"><div className="border-r border-slate-200 pr-5 text-right"><p className="text-sm font-semibold text-slate-700">Master System</p><p className="text-[11px] text-slate-400">Soluciones para tu farmacia</p></div><div className="flex items-center gap-2"><div className="flex size-9 items-center justify-center rounded-full bg-[#dff3ef] text-[#087b78]"><UserRound size={17} /></div><div><p className="text-sm font-semibold">{session.name}</p><p className="text-xs text-slate-500">{session.email}</p></div><span className={`ml-2 rounded-full px-2.5 py-1 text-[11px] font-semibold ${session.role === 'Administrador' ? 'bg-[#e4f2f3] text-[#08616a]' : 'bg-slate-100 text-slate-600'}`}>{session.role}</span></div><button onClick={() => setSession(null)} className="ml-2 rounded-lg p-2 text-slate-400 transition hover:bg-slate-100 hover:text-slate-700" aria-label="Cerrar sesión"><LogOut size={18} /></button></div>
+          <div className="hidden items-center gap-3 sm:flex"><div className="border-r border-slate-200 pr-5 text-right"><p className="text-sm font-semibold text-slate-700">Master System</p><p className="text-[11px] text-slate-400">Soluciones para tu farmacia</p></div><div className="flex items-center gap-2"><span className={`mr-2 inline-flex items-center gap-1.5 text-[11px] font-medium ${dataStatus === 'error' ? 'text-rose-600' : dataStatus === 'loading' ? 'text-slate-400' : 'text-[#0d8b83]'}`}><span className={`size-1.5 rounded-full ${dataStatus === 'error' ? 'bg-rose-500' : dataStatus === 'loading' ? 'bg-slate-300' : 'bg-[#0d8b83]'}`} />{dataStatus === 'error' ? 'Error al guardar' : dataStatus === 'loading' ? 'Cargando datos' : 'Guardado'}</span><div className="flex size-9 items-center justify-center rounded-full bg-[#dff3ef] text-[#087b78]"><UserRound size={17} /></div><div><p className="text-sm font-semibold">{session.name}</p><p className="text-xs text-slate-500">{session.email}</p></div><span className={`ml-2 rounded-full px-2.5 py-1 text-[11px] font-semibold ${session.role === 'Administrador' ? 'bg-[#e4f2f3] text-[#08616a]' : 'bg-slate-100 text-slate-600'}`}>{session.role}</span></div><button onClick={() => setSession(null)} className="ml-2 rounded-lg p-2 text-slate-400 transition hover:bg-slate-100 hover:text-slate-700" aria-label="Cerrar sesión"><LogOut size={18} /></button></div>
         </div>
       </header>
       <div className="mx-auto max-w-[1440px] px-5 py-7 lg:px-10">
