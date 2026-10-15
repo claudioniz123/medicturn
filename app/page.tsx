@@ -36,7 +36,7 @@ type Product = {
 
 const users: User[] = [
   { email: 'admin@farmacia.com', password: 'admin123', name: 'Claudio Niz', role: 'Administrador' },
-  { email: 'empleado@farmacia.com', password: 'empleado123', name: 'Carlos Méndez', role: 'Usuario' },
+  { email: 'empleado@farmacia.com', password: 'empleado123', name: 'Christian Maigua', role: 'Usuario' },
 ]
 
 const seedProducts: Product[] = [
