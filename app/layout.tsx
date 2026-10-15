@@ -3,8 +3,8 @@ import type { Metadata, Viewport } from 'next'
 import './globals.css'
 
 export const metadata: Metadata = {
-  title: 'v0 App',
-  description: 'Created with v0',
+  title: 'MedicTurn | Gestión de farmacia',
+  description: 'Gestioná el inventario, el stock y la disponibilidad de tu farmacia con MedicTurn.',
   generator: 'v0.app',
   icons: {
     icon: [
